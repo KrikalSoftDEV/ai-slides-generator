@@ -85,6 +85,7 @@ function getBounds(bbox) {
 
 function createImageBlocks(textBlocks) {
   return textBlocks.map((block, index) => ({
+    ...block,
     id: `block-${index}`,
     text: block.text || "",
     originalText: block.text || "",

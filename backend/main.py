@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import json
 import tempfile
 from io import BytesIO
+from urllib.parse import quote
 
 # Load environment variables
 load_dotenv()
@@ -52,6 +53,19 @@ def is_supported_file_type(filename: str, content_type: str) -> bool:
         return True
     
     return False
+
+
+def attachment_headers(filename: str) -> Dict[str, str]:
+    """Build download headers that are safe for Unicode filenames."""
+    basename = os.path.basename(filename) or "download"
+    fallback = "".join(
+        char if 32 <= ord(char) < 127 and char not in {'"', "\\", ";"} else "_"
+        for char in basename
+    ).strip() or "download"
+    encoded = quote(basename, safe="")
+    return {
+        "Content-Disposition": f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{encoded}'
+    }
 
 
 @app.post("/api/extract-text")
@@ -157,7 +171,7 @@ async def update_and_download(
         return Response(
             content=updated_pptx,
             media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers=attachment_headers(filename),
         )
     
     except json.JSONDecodeError:
@@ -296,7 +310,7 @@ async def save_edited_content(
             return Response(
                 content=updated_pptx,
                 media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                headers=attachment_headers(filename),
             )
         except Exception as e:
             raise HTTPException(
@@ -322,7 +336,7 @@ async def save_edited_content(
             return Response(
                 content=updated_image,
                 media_type=content_type,
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                headers=attachment_headers(filename),
             )
         except Exception as e:
             raise HTTPException(
@@ -441,5 +455,5 @@ async def generate_slides(
     return Response(
         content=pptx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=attachment_headers(filename),
     )

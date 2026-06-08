@@ -1,5 +1,8 @@
 .DS_Store
 .env
+.planning.md
+.skill.md
+.superpower.md
 .venv/
 __pycache__/
 *.py[cod]

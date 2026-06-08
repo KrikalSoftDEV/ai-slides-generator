@@ -5,6 +5,7 @@ anthropic
 pymupdf
 pillow
 numpy
+opencv-python
 python-pptx
 python-dotenv
 openai
