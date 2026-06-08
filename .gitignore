@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+*.py[cod]
+
+frontend/node_modules/
+frontend/dist/
+frontend/public/Thailand_Post_Digital_Transformation.pptx
+frontend/public/after change .png
+frontend/public/change.png
+frontend/public/textchnage.png
+
+backend/.venv/
+backend/**/__pycache__/

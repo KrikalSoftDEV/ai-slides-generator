@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-multipart
+anthropic
+pymupdf
+pillow
+numpy
+python-pptx
+python-dotenv
+openai
+easyocr

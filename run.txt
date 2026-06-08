@@ -1,0 +1,13 @@
+for backend :
+cd backend
+source .venv/bin/activate
+uvicorn main:app --reload
+
+If dependencies are missing, install first:
+cd backend
+source .venv/bin/activate
+pip install -r requirements.txt
+
+--------------------------------------------------------------------------------
+for frontend :
+npm run dev 
