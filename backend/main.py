@@ -1,12 +1,10 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, FileResponse
+from fastapi.responses import Response
 from typing import List, Dict
 import os
 from dotenv import load_dotenv
 import json
-import tempfile
-from io import BytesIO
 from urllib.parse import quote
 
 # Load environment variables
@@ -15,9 +13,15 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
     load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
 from processors.pdf_processor import process_pdf
-from processors.image_processor import process_image, extract_text_from_image, update_image_with_text
+from processors.image_processor import process_image
 from processors.pptx_processor import process_pptx, update_pptx_text
 from ai.claude_client import analyze_content_for_slides
+from generators.editable_pptx_converter import (
+    PPTX_MEDIA_TYPE,
+    convert_file_to_editable_pptx,
+    editable_pptx_filename,
+    extract_file_for_editing,
+)
 from generators.pptx_generator import create_presentation
 
 app = FastAPI(title="AI Slides Generator")
@@ -37,19 +41,18 @@ async def health():
 
 
 def is_supported_file_type(filename: str, content_type: str) -> bool:
-    """Check if file type is supported (jpg, jpeg, png, ppt)."""
+    """Check if file type is supported (jpg, jpeg, png, pdf, pptx)."""
     filename_lower = filename.lower()
     
     # Check by extension
-    if filename_lower.endswith(('.jpg', '.jpeg', '.png', '.pptx', '.ppt')):
+    if filename_lower.endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif', '.pdf', '.pptx')):
         return True
     
     # Check by content type
-    if content_type in ['image/jpeg', 'image/jpg', 'image/png']:
+    if content_type in ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']:
         return True
     
-    if content_type in ['application/vnd.ms-powerpoint', 
-                        'application/vnd.openxmlformats-officedocument.presentationml.presentation']:
+    if content_type in ['application/vnd.openxmlformats-officedocument.presentationml.presentation']:
         return True
     
     return False
@@ -71,7 +74,7 @@ def attachment_headers(filename: str) -> Dict[str, str]:
 @app.post("/api/extract-text")
 async def extract_text(files: List[UploadFile] = File(...)):
     """
-    Extract editable text from uploaded files (jpg, jpeg, ppt).
+    Extract editable text from uploaded files (jpg, jpeg, png, pdf, pptx).
     Returns JSON with text organized by file.
     """
     result = {}
@@ -90,13 +93,12 @@ async def extract_text(files: List[UploadFile] = File(...)):
         if not is_supported_file_type(filename, file.content_type or ""):
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported file type '{filename}'. Only .jpg, .jpeg, .png, and .ppt are supported."
+                detail=f"Unsupported file type '{filename}'. Only .jpg, .jpeg, .png, .pdf, and .pptx are supported."
             )
         
         # Process PPT files
-        if filename.lower().endswith(('.pptx', '.ppt')) or \
-           file.content_type in ['application/vnd.ms-powerpoint',
-                                 'application/vnd.openxmlformats-officedocument.presentationml.presentation']:
+        if filename.lower().endswith('.pptx') or \
+           file.content_type in ['application/vnd.openxmlformats-officedocument.presentationml.presentation']:
             try:
                 text_data, _ = process_pptx(content)
                 result[filename] = {
@@ -107,6 +109,19 @@ async def extract_text(files: List[UploadFile] = File(...)):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Failed to process PPT file '{filename}': {str(e)}"
+                )
+
+        elif filename.lower().endswith('.pdf') or file.content_type == "application/pdf":
+            try:
+                texts, _ = process_pdf(content)
+                result[filename] = {
+                    "type": "pdf",
+                    "pages": texts,
+                }
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to process PDF file '{filename}': {str(e)}"
                 )
         
         # Process image files
@@ -148,10 +163,13 @@ async def update_and_download(
         )
     
     # Validate file type
-    if not is_supported_file_type(filename, ppt_file.content_type or ""):
+    if not (
+        filename.lower().endswith('.pptx') or
+        ppt_file.content_type == 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ):
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type. Only .ppt files can be edited."
+            detail="Unsupported file type. Only .pptx files can be edited by this legacy endpoint."
         )
     
     try:
@@ -189,11 +207,11 @@ async def update_and_download(
 @app.post("/api/extract-editable-content")
 async def extract_editable_content(file: UploadFile = File(...)):
     """
-    NEW WORKFLOW: Extract text from image or PPT for editing.
+    NEW WORKFLOW: Extract text from image, PDF, or PPTX for editable PPTX export.
     
     Returns:
         JSON with:
-        - file_type: "image" or "pptx"
+        - file_type: "image", "pdf", or "pptx"
         - content: extracted text or slides
         - filename: original filename
     """
@@ -210,54 +228,16 @@ async def extract_editable_content(file: UploadFile = File(...)):
     if not is_supported_file_type(filename, file.content_type or ""):
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type '{filename}'. Only .jpg, .jpeg, .png, and .ppt are supported."
+            detail=f"Unsupported file type '{filename}'. Only .jpg, .jpeg, .png, .pdf, and .pptx are supported."
         )
     
-    # Process PPT files
-    if filename.lower().endswith(('.pptx', '.ppt')):
-        try:
-            text_data, _ = process_pptx(content)
-            return {
-                "file_type": "pptx",
-                "filename": filename,
-                "content": text_data,
-                "success": True
-            }
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to extract text from PPT: {str(e)}"
-            )
-    
-    # Process image files
-    elif file.content_type and file.content_type.startswith("image/"):
-        try:
-            ocr_result = extract_text_from_image(content)
-            if not ocr_result["success"]:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to extract text from image: {ocr_result.get('error', 'Unknown error')}"
-                )
-            
-            return {
-                "file_type": "image",
-                "filename": filename,
-                "content_type": file.content_type,
-                "content": {
-                    "full_text": ocr_result["full_text"],
-                    "text_blocks": ocr_result["text_blocks"],
-                    "image_width": ocr_result.get("image_width"),
-                    "image_height": ocr_result.get("image_height"),
-                },
-                "success": True
-            }
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to extract text from image: {str(e)}"
-            )
+    try:
+        return extract_file_for_editing(content, filename, file.content_type or "")
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to extract editable content from '{filename}': {str(e)}"
+        )
 
 
 @app.post("/api/save-edited-content")
@@ -267,12 +247,11 @@ async def save_edited_content(
     updated_content: str = Form(...),  # JSON string
 ):
     """
-    NEW WORKFLOW: Save edited content back to file.
+    NEW WORKFLOW: Save edited content as a reconstructed editable PPTX.
     
-    For images: Overlay edited text on image
-    For PPT: Update slide text
-    
-    Returns: Modified file in same format
+    Images and PDFs are rebuilt as PowerPoint slides with editable text boxes.
+    Existing PPTX files keep editable text and convert OCR-detected picture text
+    into real PowerPoint text boxes.
     """
     content = await file.read()
     filename = file.filename or "document"
@@ -291,63 +270,60 @@ async def save_edited_content(
             detail="Invalid JSON format for updated_content parameter."
         )
     
-    # Handle PPT files
-    if file_type == "pptx":
-        try:
-            if not filename.lower().endswith(('.pptx', '.ppt')):
-                raise HTTPException(
-                    status_code=400,
-                    detail="File type mismatch: expecting PPT file"
-                )
-            
-            # Convert string keys to integers (slide numbers)
-            updated_texts = {int(k): v for k, v in parsed_content.items()}
-            
-            # Process and update PPTX
-            text_data, prs = process_pptx(content)
-            updated_pptx = update_pptx_text(prs, updated_texts)
-            
-            return Response(
-                content=updated_pptx,
-                media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                headers=attachment_headers(filename),
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to update PPT file: {str(e)}"
-            )
-    
-    # Handle image files
-    elif file_type == "image":
-        try:
-            if not file.content_type or not file.content_type.startswith("image/"):
-                raise HTTPException(
-                    status_code=400,
-                    detail="File type mismatch: expecting image file"
-                )
-            
-            updated_image, content_type = update_image_with_text(
-                content, 
-                file.content_type,
-                parsed_content
-            )
-            
-            return Response(
-                content=updated_image,
-                media_type=content_type,
-                headers=attachment_headers(filename),
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to update image file: {str(e)}"
-            )
-    
-    else:
+    try:
+        pptx_bytes = convert_file_to_editable_pptx(
+            content,
+            filename,
+            file.content_type or "",
+            parsed_content,
+        )
+        return Response(
+            content=pptx_bytes,
+            media_type=PPTX_MEDIA_TYPE,
+            headers=attachment_headers(editable_pptx_filename(filename)),
+        )
+    except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown file type: {file_type}. Use 'image' or 'pptx'."
+            detail=f"Failed to create editable PPTX: {str(e)}"
+        )
+
+
+@app.post("/api/convert-to-editable-pptx")
+async def convert_to_editable_pptx(file: UploadFile = File(...)):
+    """
+    One-step workflow: upload JPG, PNG, PDF, or PPTX and download an editable PPTX.
+    """
+    content = await file.read()
+    filename = file.filename or "document"
+
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is empty."
+        )
+
+    if not is_supported_file_type(filename, file.content_type or ""):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{filename}'. Only .jpg, .jpeg, .png, .pdf, and .pptx are supported."
+        )
+
+    try:
+        pptx_bytes = convert_file_to_editable_pptx(
+            content,
+            filename,
+            file.content_type or "",
+        )
+        return Response(
+            content=pptx_bytes,
+            media_type=PPTX_MEDIA_TYPE,
+            headers=attachment_headers(editable_pptx_filename(filename)),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to create editable PPTX: {str(e)}"
         )
 
 
@@ -370,17 +346,31 @@ async def generate_slides(
                 detail=f"Uploaded file '{filename}' is empty. Use a real file upload, not a copied --data-raw curl body from browser devtools."
             )
 
-        # Validate file type - only accept jpg, jpeg, png, ppt
+        # Validate file type - accept jpg, jpeg, png, pdf, pptx
         if not is_supported_file_type(filename, file.content_type or ""):
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported file type '{filename}'. Only .jpg, .jpeg, .png, and .ppt are supported."
+                detail=f"Unsupported file type '{filename}'. Only .jpg, .jpeg, .png, .pdf, and .pptx are supported."
             )
 
+        is_pdf = filename.lower().endswith('.pdf') or file.content_type == "application/pdf"
+
+        if is_pdf:
+            try:
+                pdf_texts, pdf_images = process_pdf(content)
+                texts.extend(pdf_texts)
+                source_visuals.extend(pdf_images)
+                analysis_images.extend(pdf_images)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid or corrupted PDF file '{filename}': {str(e)}"
+                )
+            continue
+
         # Process PPT files
-        is_ppt = filename.lower().endswith(('.pptx', '.ppt')) or \
-                 file.content_type in ['application/vnd.ms-powerpoint',
-                                       'application/vnd.openxmlformats-officedocument.presentationml.presentation']
+        is_ppt = filename.lower().endswith('.pptx') or \
+                 file.content_type in ['application/vnd.openxmlformats-officedocument.presentationml.presentation']
         
         if is_ppt:
             try:

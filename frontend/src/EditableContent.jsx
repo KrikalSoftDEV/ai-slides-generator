@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 
 const ACCEPTED_FORMATS = [
+  "application/pdf",
   "image/png",
   "image/jpeg",
   "image/jpg",
-  "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ];
 
@@ -60,16 +60,29 @@ function DownloadIcon() {
 
 function isEditableFile(file) {
   if (!file) return false;
-  return ACCEPTED_FORMATS.includes(file.type) || file.type.startsWith("image/");
+  const name = file.name.toLowerCase();
+  return (
+    ACCEPTED_FORMATS.includes(file.type) ||
+    file.type.startsWith("image/") ||
+    name.endsWith(".pdf") ||
+    name.endsWith(".pptx")
+  );
 }
 
 function isPowerPoint(file) {
   return (
     file.type.includes("presentationml") ||
-    file.type === "application/vnd.ms-powerpoint" ||
-    file.name.toLowerCase().endsWith(".ppt") ||
     file.name.toLowerCase().endsWith(".pptx")
   );
+}
+
+function isPdf(file) {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
+function editablePptxName(file) {
+  const baseName = file.name.replace(/\.[^/.]+$/, "") || "editable-slides";
+  return `${baseName}-editable.pptx`;
 }
 
 function getBounds(bbox) {
@@ -88,7 +101,7 @@ function createImageBlocks(textBlocks) {
     ...block,
     id: `block-${index}`,
     text: block.text || "",
-    originalText: block.text || "",
+    originalText: block.originalText || block.text || "",
     confidence: block.confidence ?? null,
     bbox: block.bbox,
   }));
@@ -117,7 +130,7 @@ export default function EditableContent() {
     if (!selectedFile) return;
 
     if (!isEditableFile(selectedFile)) {
-      setError("Only PNG, JPG, or PowerPoint files are supported.");
+      setError("Only JPG, PNG, PDF, or PPTX files are supported.");
       return;
     }
 
@@ -129,7 +142,7 @@ export default function EditableContent() {
 
     setFile(selectedFile);
     setPreviewUrl(objectUrl);
-    setFileType(isPowerPoint(selectedFile) ? "pptx" : "image");
+    setFileType(isPowerPoint(selectedFile) ? "pptx" : isPdf(selectedFile) ? "pdf" : "image");
     setContent(null);
     setImageBlocks([]);
     setSlideBlocks({});
@@ -175,10 +188,11 @@ export default function EditableContent() {
           slides[slide.slide_number] = (slide.text_blocks || []).map(
             (block, index) => ({
               ...block,
-              id: `slide-${slide.slide_number}-shape-${block.shape_index ?? index}`,
+              id: `slide-${slide.slide_number}-block-${block.shape_index ?? "page"}-${block.block_index ?? index}-${index}`,
               shape_index: block.shape_index,
+              block_index: block.block_index ?? index,
               text: block.text || "",
-              originalText: block.text || "",
+              originalText: block.originalText || block.text || "",
             }),
           );
         });
@@ -238,7 +252,7 @@ export default function EditableContent() {
       const downloadUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = downloadUrl;
-      anchor.download = file.name;
+      anchor.download = editablePptxName(file);
       document.body.appendChild(anchor);
       anchor.click();
       document.body.removeChild(anchor);
@@ -358,14 +372,18 @@ export default function EditableContent() {
 
   const renderPptEditor = () => (
     <div style={styles.pptPanel}>
-      <h3 style={styles.sectionTitle}>Editable Slides</h3>
+      <h3 style={styles.sectionTitle}>
+        {fileType === "pdf" ? "Editable PDF Pages" : "Editable Slides"}
+      </h3>
       <div style={styles.slidesContainer}>
         {Array.isArray(content) &&
           content.map((slide) => {
             const blocks = slideBlocks[slide.slide_number] || [];
             return (
               <div key={slide.slide_number} style={styles.slideEditor}>
-                <span style={styles.blockLabel}>Slide {slide.slide_number}</span>
+                <span style={styles.blockLabel}>
+                  {fileType === "pdf" ? "Page" : "Slide"} {slide.slide_number}
+                </span>
                 <div style={styles.slideBlocksList}>
                   {blocks.map((block, index) => (
                     <label key={block.id} style={styles.pptBlockEditor}>
@@ -398,10 +416,10 @@ export default function EditableContent() {
       <div style={styles.card}>
         <div style={styles.cardHeader}>
           <div>
-            <h2 style={styles.title}>Editable Content Studio</h2>
+            <h2 style={styles.title}>Visual to Editable PowerPoint</h2>
             <p style={styles.subtitle}>
-              Upload, review AI-detected text, edit it, then download the same
-              file format.
+              Upload JPG, PNG, PDF, or PPTX, review detected text, then download
+              an editable PowerPoint file.
             </p>
           </div>
           {file && <span style={styles.fileBadge}>{file.name}</span>}
@@ -421,14 +439,14 @@ export default function EditableContent() {
               }}
             >
               <UploadIcon />
-              <p style={styles.uploadText}>Upload image or PowerPoint</p>
-              <p style={styles.uploadSubtext}>PNG, JPG, PPT, or PPTX</p>
+              <p style={styles.uploadText}>Upload visual content</p>
+              <p style={styles.uploadSubtext}>JPG, PNG, PDF, or PPTX</p>
             </div>
 
             <input
               ref={fileInputRef}
               type="file"
-              accept=".jpg,.jpeg,.png,.ppt,.pptx"
+              accept=".jpg,.jpeg,.png,.pdf,.pptx"
               onChange={handleFileSelect}
               style={{ display: "none" }}
             />
@@ -438,14 +456,14 @@ export default function EditableContent() {
         {step === "analyzing" && (
           <div style={styles.loadingState}>
             <Spinner />
-            <span>AI is analyzing editable text...</span>
+            <span>Detecting text and layout...</span>
           </div>
         )}
 
         {step === "editing" && (
           <>
             {fileType === "image" && renderImageEditor()}
-            {fileType === "pptx" && renderPptEditor()}
+            {(fileType === "pptx" || fileType === "pdf") && renderPptEditor()}
 
             <div style={styles.buttonGroup}>
               <button
@@ -459,7 +477,7 @@ export default function EditableContent() {
                   </>
                 ) : (
                   <>
-                    <DownloadIcon /> Save & Download
+                    <DownloadIcon /> Download Editable PPTX
                   </>
                 )}
               </button>

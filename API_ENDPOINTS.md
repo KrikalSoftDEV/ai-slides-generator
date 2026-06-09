@@ -1,243 +1,123 @@
 # API Endpoints Documentation
 
-## NEW WORKFLOW: Edit & Download Content
+## Editable PPTX Reconstruction Workflow
 
-The application now features a **new workflow** where users can:
-1. Upload an image or PPT file
-2. Extract and view all editable text
-3. Edit the text directly
-4. Save and download the modified file **in the same format**
+The primary workflow converts uploaded visual content into a PowerPoint file where detected text is rebuilt as editable PPTX text boxes.
 
----
+Supported inputs:
+- Images: `.jpg`, `.jpeg`, `.png`
+- Documents: `.pdf`
+- Presentations: `.pptx`
 
-## Two Main Workflows
+Output:
+- Always returns `.pptx`
+- Text detected in images, PDF pages, and PPTX picture slides is placed as editable PowerPoint text
+- Existing editable PPTX text remains editable
 
-### 1. **OLD WORKFLOW: AI-Powered Slide Generation**
-Generate AI-powered PowerPoint presentations from images/PPT content.
+## Endpoints
 
-### 2. **NEW WORKFLOW: Edit & Download** (Recommended)
-Extract text from files → Edit text → Download modified file in same format.
+### Health Check
 
----
+`GET /api/health`
 
-## API Endpoints
+Response:
 
-### 1. Health Check
-**Endpoint**: `GET /api/health`
-
-**Response**:
 ```json
 {
   "status": "ok"
 }
 ```
 
----
+### Extract Editable Content
 
-### 2. Extract Editable Content (NEW WORKFLOW - Step 1)
-**Endpoint**: `POST /api/extract-editable-content`
+`POST /api/extract-editable-content`
 
-**Description**: Extract all text from an image or PPT file for editing.
+Analyzes one uploaded file and returns detected editable text blocks for review before export.
 
-**Request**:
-- **Content-Type**: `multipart/form-data`
-- **Parameter**: `file` (single file - jpg, jpeg, png, or ppt)
+Request:
+- `file`: one `.jpg`, `.jpeg`, `.png`, `.pdf`, or `.pptx`
 
-**Response** (PPT):
-```json
-{
-  "file_type": "pptx",
-  "filename": "presentation.pptx",
-  "success": true,
-  "content": [
-    {
-      "slide_number": 1,
-      "text": "Slide title and content",
-      "full_text_with_label": "Slide 1:\nSlide title and content"
-    },
-    {
-      "slide_number": 2,
-      "text": "More content",
-      "full_text_with_label": "Slide 2:\nMore content"
-    }
-  ]
-}
-```
+Response for images:
 
-**Response** (Image - uses OCR):
 ```json
 {
   "file_type": "image",
-  "filename": "image.jpg",
-  "content_type": "image/jpeg",
+  "filename": "slide.png",
   "success": true,
   "content": {
-    "full_text": "All extracted text from the image",
+    "full_text": "Detected text",
     "text_blocks": [
       {
-        "text": "Text block 1",
-        "confidence": 0.95,
-        "bbox": [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
+        "text": "Detected text",
+        "originalText": "Detected text",
+        "bbox": [[10, 20], [200, 20], [200, 60], [10, 60]],
+        "image_width": 1280,
+        "image_height": 720
       }
     ]
   }
 }
 ```
 
----
+Response for PDFs and PPTX files:
 
-### 3. Save Edited Content (NEW WORKFLOW - Step 2)
-**Endpoint**: `POST /api/save-edited-content`
-
-**Description**: Update text in file and return the modified version **in the same format**.
-
-**Request**:
-- **Content-Type**: `multipart/form-data`
-- **Parameters**:
-  - `file`: The original file (jpg, jpeg, png, or ppt)
-  - `file_type`: Either `"image"` or `"pptx"`
-  - `updated_content`: JSON string with updated text
-
-**For PPT Files**, JSON format:
 ```json
 {
-  "1": "Updated slide 1 text",
-  "2": "Updated slide 2 text",
-  "3": "Updated slide 3 text"
+  "file_type": "pdf",
+  "filename": "deck.pdf",
+  "success": true,
+  "content": [
+    {
+      "slide_number": 1,
+      "text": "Detected page text",
+      "text_blocks": []
+    }
+  ]
 }
 ```
 
-**For Image Files**, JSON format:
-```json
-{
-  "text": "Updated text to overlay on image"
-}
-```
+### Save Edited Content As PPTX
 
-**Response**:
-- Returns the modified file as a download (same format as input)
-- Content-Type: `image/jpeg`, `image/png`, or `application/vnd.openxmlformats-officedocument.presentationml.presentation`
+`POST /api/save-edited-content`
 
----
+Creates an editable PowerPoint from the original upload plus reviewed or edited text blocks.
 
-### 4. Extract Text from Files (Legacy)
-**Endpoint**: `POST /api/extract-text`
-
-**Description**: Extract text from uploaded files (jpg, jpeg, png, or ppt).
-
-**Response**: JSON with text organized by file
-
----
-
-### 5. Update and Download (Legacy)
-**Endpoint**: `POST /api/update-and-download`
-
-**Description**: Update text in PPT file and return the modified file.
-
----
-
-### 6. Generate AI Slides
-**Endpoint**: `POST /api/generate-slides`
-
-**Description**: Generate new AI-powered slides from content.
-
----
-
-## Complete Workflow Example
-
-### Step 1: Extract Text from Image
-```bash
-curl -X POST "http://localhost:8000/api/extract-editable-content" \
-  -F "file=@my_image.jpg"
-```
+Request:
+- `file`: the original uploaded file
+- `file_type`: `image`, `pdf`, or `pptx`
+- `updated_content`: JSON string returned by the frontend editor
 
 Response:
-```json
-{
-  "file_type": "image",
-  "filename": "my_image.jpg",
-  "content_type": "image/jpeg",
-  "success": true,
-  "content": {
-    "full_text": "Original text from image",
-    "text_blocks": [...]
-  }
-}
-```
+- Content-Type: `application/vnd.openxmlformats-officedocument.presentationml.presentation`
+- Download filename: `<original-name>-editable.pptx`
 
-### Step 2: Edit the Text (in Frontend)
-User edits the text in the UI.
+### Convert Directly To Editable PPTX
 
-### Step 3: Save Modified File
-```bash
-curl -X POST "http://localhost:8000/api/save-edited-content" \
-  -F "file=@my_image.jpg" \
-  -F "file_type=image" \
-  -F 'updated_content={"text": "New edited text for the image"}'
-```
+`POST /api/convert-to-editable-pptx`
 
-Response: Modified image file (jpg)
+One-step conversion without review in the browser.
 
----
+Request:
+- `file`: one `.jpg`, `.jpeg`, `.png`, `.pdf`, or `.pptx`
 
-## PPT Workflow Example
+Response:
+- Editable `.pptx` download
 
-### Step 1: Extract PPT Slides
-```bash
-curl -X POST "http://localhost:8000/api/extract-editable-content" \
-  -F "file=@presentation.pptx"
-```
+### Generate AI Slides
 
-### Step 2: Edit Slide Text (in Frontend)
-User edits each slide's text.
+`POST /api/generate-slides`
 
-### Step 3: Save Modified PPT
-```bash
-curl -X POST "http://localhost:8000/api/save-edited-content" \
-  -F "file=@presentation.pptx" \
-  -F "file_type=pptx" \
-  -F 'updated_content={"1": "New slide 1 text", "2": "New slide 2 text"}'
-```
+Generates a new AI-authored presentation from uploaded source material. This is separate from editable reconstruction.
 
-Response: Modified presentation.pptx file
+Request:
+- `files`: one or more images, PDFs, or PPTX files
+- `num_slides`: target generated deck length
 
----
+Response:
+- Generated `.pptx` download
 
-## Supported File Formats
+## Notes
 
-- **Images**: `.jpg`, `.jpeg`, `.png`
-  - Uses OCR (EasyOCR) to extract text
-  - Text is overlaid on the modified image
-  - Returns same image format as input
-
-- **Presentations**: `.ppt`, `.pptx`
-  - Extracts text from all slides
-  - Updates slide text
-  - Returns same PPT format
-
----
-
-## Key Features
-
-✅ **Same Format Return**: Upload JPG → Get JPG back; Upload PPT → Get PPT back
-✅ **Full Text Editing**: All text is editable
-✅ **OCR Support**: Automatically extracts text from images
-✅ **No AI Required**: Fast local processing (no API calls for editing)
-✅ **File Validation**: Only accepts jpg, jpeg, png, ppt formats
-
----
-
-## Error Handling
-
-All endpoints return appropriate HTTP status codes:
-- `200`: Success
-- `400`: Bad request / Invalid file format
-- `401`: Authentication error
-- `500`: Server error
-
-Error response format:
-```json
-{
-  "detail": "Error message describing what went wrong"
-}
-```
+- Image and scanned-PDF text editability depends on OCR detection quality.
+- PDF files with selectable text preserve more font metadata than raster images.
+- Legacy `.ppt` binary files are not supported; save them as `.pptx` first.

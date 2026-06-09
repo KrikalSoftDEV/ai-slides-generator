@@ -8,7 +8,18 @@ const ACCEPTED_TYPES = [
   "image/jpg",
   "image/webp",
   "image/gif",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ];
+
+function isAcceptedSource(file) {
+  const name = file.name.toLowerCase();
+  return (
+    ACCEPTED_TYPES.includes(file.type) ||
+    file.type.startsWith("image/") ||
+    name.endsWith(".pdf") ||
+    name.endsWith(".pptx")
+  );
+}
 
 function FileIcon({ type }) {
   if (type === "application/pdf") {
@@ -90,12 +101,10 @@ export default function App() {
   const fileInputRef = useRef(null);
 
   const addFiles = useCallback((newFiles) => {
-    const valid = Array.from(newFiles).filter((f) =>
-      ACCEPTED_TYPES.includes(f.type),
-    );
+    const valid = Array.from(newFiles).filter(isAcceptedSource);
     if (valid.length < newFiles.length) {
       setError(
-        "Some files were skipped — only PDF and image files are supported.",
+        "Some files were skipped — only PDF, image, and PPTX files are supported.",
       );
     }
     setFiles((prev) => {
@@ -130,7 +139,7 @@ export default function App() {
 
   const handleGenerate = async () => {
     if (!files.length) {
-      setError("Please upload at least one PDF or image file.");
+      setError("Please upload at least one PDF, image, or PPTX file.");
       return;
     }
     setLoading(true);
@@ -227,14 +236,14 @@ export default function App() {
 
       {/* Hero Section */}
       <section className="hero">
-        <span className="badge">Editable AI Content</span>
+        <span className="badge">Editable PowerPoint Reconstruction</span>
         <h1 className="hero-title">
-          Upload an image, edit the text, <br />
-          <span className="gradient-text">download the same format</span>
+          Upload visual content, rebuild the text, <br />
+          <span className="gradient-text">download editable PPTX</span>
         </h1>
         <p className="hero-subtitle">
-          Claude analyzes your image or presentation, detects editable text, and
-          lets you revise the content before exporting the updated file.
+          Convert JPG, PNG, PDF, or PPTX files into PowerPoint slides with real
+          editable text boxes placed over the original layout.
         </p>
       </section>
 
@@ -250,7 +259,7 @@ export default function App() {
                 : styles.tabButtonInactive),
             }}
           >
-            Edit Content
+            Editable PPTX
           </button>
           <button
             onClick={() => setActiveTab("generate")}
@@ -303,7 +312,7 @@ export default function App() {
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept=".pdf,image/*"
+                    accept=".pdf,.pptx,image/*"
                     style={{ display: "none" }}
                     onChange={(e) => addFiles(e.target.files)}
                   />
@@ -316,7 +325,7 @@ export default function App() {
                       <span className="link">browse</span>
                     </p>
                     <p className="dropzone-secondary">
-                      Supports PDF, PNG, JPG, WEBP, GIF
+                      Supports PDF, PNG, JPG, WEBP, GIF, PPTX
                     </p>
                   </div>
                 </div>
@@ -489,28 +498,30 @@ export default function App() {
               {/* Informational AI Features Grid */}
               <section className="features-grid">
                 <div className="feature-card">
-                  <span className="feature-icon">🧠</span>
-                  <h3 className="feature-title">Claude 4.6 Analytics</h3>
+                  <span className="feature-icon">🧭</span>
+                  <h3 className="feature-title">Planning</h3>
                   <p className="feature-desc">
-                    Leverages Anthropic's flagship LLM to parse document
-                    semantics, filter fluff, and summarize key insights.
+                    Turns uploaded PDFs, images, and decks into a clear slide
+                    structure with target length, flow, and source context
+                    handled before export.
                   </p>
                 </div>
                 <div className="feature-card">
-                  <span className="feature-icon">🎨</span>
-                  <h3 className="feature-title">Layout Orchestrator</h3>
+                  <span className="feature-icon">🛠️</span>
+                  <h3 className="feature-title">Skill</h3>
                   <p className="feature-desc">
-                    Dynamically switches slide layouts (Standard Bullets,
-                    Section Dividers, Double Column Comparison) based on data
-                    relationships.
+                    Reconstructs detected text as real PowerPoint text boxes,
+                    preserving the original visual layout while making content
+                    editable.
                   </p>
                 </div>
                 <div className="feature-card">
-                  <span className="feature-icon">📝</span>
-                  <h3 className="feature-title">Speaker Scripting</h3>
+                  <span className="feature-icon">⚡</span>
+                  <h3 className="feature-title">Superpower</h3>
                   <p className="feature-desc">
-                    Generates professional speaker notes inside the PowerPoint
-                    slides to structure your speech and guide the presentation.
+                    Converts static screenshots, scanned PDFs, and existing
+                    PPTX files into downloadable editable presentations in one
+                    focused workflow.
                   </p>
                 </div>
               </section>
